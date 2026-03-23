@@ -4,7 +4,10 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.models import Token
-from .models import Products
+from .models import Products, UserProfile
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import authentication_classes, permission_classes
 from decimal import Decimal, InvalidOperation
 
 
@@ -91,6 +94,31 @@ def create_product(request):
 
     product = Products.objects.create(name=name, type=type, price=price, image=image)
     return Response({'id': product.id, 'name': product.name}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PUT'])
+@authentication_classes([TokenAuthentication])
+@permission_classes([IsAuthenticated])
+def profile(request):
+    user = request.user
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    if request.method == 'GET':
+        return Response({
+            'name': user.first_name,
+            'email': user.email,
+            'mobile': profile.mobile,
+            'address': profile.address,
+            'image': profile.image.url if profile.image else None,
+        })
+
+    elif request.method == 'PUT':
+        profile.mobile = request.data.get('mobile', profile.mobile)
+        profile.address = request.data.get('address', profile.address)
+        if request.FILES.get('image'):
+            profile.image = request.FILES.get('image')
+        profile.save()
+        return Response({'message': 'Profile updated successfully.'})
 
 
 @api_view(['GET', 'PUT', 'DELETE'])
