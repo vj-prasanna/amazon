@@ -4,6 +4,19 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.authtoken.models import Token
+from .models import Products
+from decimal import Decimal, InvalidOperation
+
+
+def parse_price(value):
+    """Return a valid Decimal price or None if invalid/out of range."""
+    try:
+        price = Decimal(str(value)).quantize(Decimal('0.01'))
+        if price <= 0 or price > Decimal('99999.99'):
+            return None
+        return price
+    except InvalidOperation:
+        return None
 
 
 @api_view(['POST'])
@@ -46,3 +59,64 @@ def login(request):
 def logout(request):
     request.auth.delete()
     return Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+def checkout(request):
+    return Response({'message': 'Order placed successfully.'})
+
+
+@api_view(['GET'])
+def get_products(request):
+    products = Products.objects.all()
+    data = [
+        {'id': p.id, 'name': p.name, 'type': p.type, 'price': str(p.price), 'image': p.image.url if p.image else None}
+        for p in products
+    ]
+    return Response(data)
+
+
+@api_view(['POST'])
+def create_product(request):
+    name = request.data.get('name', '').strip()
+    type = request.data.get('type', '').strip()
+    price = request.data.get('price')
+    image = request.FILES.get('image')
+
+    if not name or not type or not price:
+        return Response({'error': 'name, type and price are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    price = parse_price(price)
+    if price is None:
+        return Response({'error': 'Price must be a positive number up to 99999.99.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    product = Products.objects.create(name=name, type=type, price=price, image=image)
+    return Response({'id': product.id, 'name': product.name}, status=status.HTTP_201_CREATED)
+
+
+@api_view(['GET', 'PUT', 'DELETE'])
+def product_detail(request, id):
+    try:
+        product = Products.objects.get(id=id)
+    except Products.DoesNotExist:
+        return Response({'error': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == 'GET':
+        return Response({'id': product.id, 'name': product.name, 'type': product.type, 'price': str(product.price), 'image': product.image.url if product.image else None})
+
+    elif request.method == 'PUT':
+        product.name = request.data.get('name', product.name)
+        product.type = request.data.get('type', product.type)
+        raw_price = request.data.get('price')
+        if raw_price is not None:
+            parsed = parse_price(raw_price)
+            if parsed is None:
+                return Response({'error': 'Price must be a positive number up to 99999.99.'}, status=status.HTTP_400_BAD_REQUEST)
+            product.price = parsed
+        if request.FILES.get('image'):
+            product.image = request.FILES.get('image')
+        product.save()
+        return Response({'message': 'Product updated.'})
+
+    elif request.method == 'DELETE':
+        product.delete()
+        return Response({'message': 'Product deleted.'})
